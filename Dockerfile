@@ -5,7 +5,6 @@ LABEL maintainer="aditya.garg@columbia.edu"
 ADD requirements.txt /tmp/requirements.txt
 
 # install all python dependencies
-# TODO: pip install from artifactory when available
 RUN pip install -r /tmp/requirements.txt 
 
 ADD ./fact_check_me /fact_check_me
