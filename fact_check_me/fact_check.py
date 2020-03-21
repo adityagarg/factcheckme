@@ -109,8 +109,11 @@ def factcheckme(query, twiml=True, debug=False):
 
     response_json = request_api(params)
 
+    if not response_json:
+        return None
+
     if debug:
-        print(response_json)
+        loggin.info(response_json)
 
     if not response_json.get("claims"):
         if twiml:
