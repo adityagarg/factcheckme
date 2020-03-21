@@ -68,30 +68,30 @@ def request_api(params):
         return r.json()
 
 
-def parse_response(response_json, twiml):
+def parse_response(response_json):
 
     claim = response_json["claims"][0]
     claim_text = claim["text"]
     claimant = claim.get("claimant") or "Unknown"
     claimDateTime = claim.get("claimDate")
-    claimDate = pd.to_datetime(claimDateTime).date() if claimDateTime else "Unknown Date"
+    claimDate = (
+        pd.to_datetime(claimDateTime).date() if claimDateTime else "Unknown Date"
+    )
     claimReview = claim["claimReview"][0]
     claimReview_publisher = claimReview["publisher"]["name"]
     claimReview_title = claimReview.get("title") or "Review Article"
     claimReview_datetime = claimReview.get("reviewDate")
     claimReview_date = (
-        pd.to_datetime(claimReview_datetime).date() if claimReview_datetime else "Unknown Date"
+        pd.to_datetime(claimReview_datetime).date()
+        if claimReview_datetime
+        else "Unknown Date"
     )
     claimReview_url = claimReview.get("url")
     textualRating = claimReview.get("textualRating")
     reviewDate = claimReview.get("reviewDate")
 
-    if twiml:
-        msg_template = SUCCESS_MSG_TEMPLATE_TWIML
-    else:
-        msg_template = SUCCESS_MSG_TEMPLATE
 
-    return msg_template.format(
+    return SUCCESS_MSG_TEMPLATE_TWIML.format(
         claim_text=claim_text,
         claimant=claimant,
         claimDate=claimDate,
@@ -104,26 +104,20 @@ def parse_response(response_json, twiml):
     )
 
 
-def factcheckme(query, twiml=True, debug=False):
+def factcheckme(query):
     params = {"query": query}
 
     response_json = request_api(params)
 
-    if not response_json:
-        return None
+    review_found = False
 
-    if debug:
-        loggin.info(response_json)
+    if response_json:
+        if response_json.get("claims"):
+            review_found = True
 
-    if not response_json.get("claims"):
-        if twiml:
-            error_message_template = ERROR_MSG_TEMPLATE_TWIML
-        else:
-            error_message_template = ERROR_MSG_TEMPLATE
-        msg = error_message_template.format(query=urllib.parse.quote(query))
+    if review_found:
+        msg = parse_response(response_json)
     else:
-        msg = parse_response(response_json, twiml=twiml)
-
-    # display(HTML(msg))
+        msg = ERROR_MSG_TEMPLATE_TWIML.format(query=urllib.parse.quote(query))
 
     return msg
