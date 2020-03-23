@@ -1,48 +1,26 @@
 import os
 import logging
+import urllib
 import pandas as pd
 
 import requests
-import json
-
-# from IPython.core.display import display, HTML
-
-import urllib
 
 
-API_KEY = os.environ.get("GOOGLE_FACT_CHECK_API_KEY")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_FACT_CHECK_API_KEY")
 
-API_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY")
 
-SUCCESS_MSG_TEMPLATE = """
-<p>
-    <b>'{claim_text}' </b><br>
-    claimed by <i>{claimant}</i> on <i>{claimDate}</i>
-</p>
-<p>
-    Review : <b> {textualRating} </b> <br>
-    reviewed by <i> {claimReview_publisher} </i> on <i> {claimReview_date} </i><br>
-    <a href = '{claimReview_url}' target='_blank'> {claimReview_title} </a>
-</p>
-"""
+GOOGLE_API_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
+
+NEWS_API_URL = "http://newsapi.org/v2/everything"
 
 GOOGLE_NEWS_URL = """
 https://news.google.com/search?q={query}
 """
 
-ERROR_MSG_TEMPLATE = """
-<p>
-Could not find review for the text. 
-Please follow the link below to validate before sharing.
-<a href='{google_news_url}'> Search Online </a>
-</p>
-""".format(
-    google_news_url=GOOGLE_NEWS_URL
-)
-
 ERROR_MSG_TEMPLATE_TWIML = """
-Could not find review for the text. 
-Please follow the link below to validate before sharing.
+Could not find a review or specific news article related to the claim. 
+Please follow the link below to browse articles before sharing.
 {google_news_url}
 """.format(
     google_news_url=GOOGLE_NEWS_URL
@@ -59,37 +37,51 @@ reviewed by _{claimReview_publisher}_ on _{claimReview_date}_
 {claimReview_url}
 """
 
+NEWS_MSG_TEMPLATE_TWIML = """
+Could not find a review for the text. However, the following news article seems relevant to the claim: 
 
-def request_api(params):
-    params["key"] = API_KEY
-    logging.info("params - ", params)
-    r = requests.get(API_URL, params=params)
+*'{article_headline}'*
+by _{article_source_name}_ published on _{article_published_at_date}_
+{article_url}
+
+To find further articles related to the claim, you may visit the link below:
+{google_new_url}
+"""
+
+
+def request_fact_check_api(query):
+    params = {"query": query, "key": GOOGLE_API_KEY}
+    logging.info("params : {} ".format(params))
+    r = requests.get(GOOGLE_API_URL, params=params)
     if r.ok:
         return r.json()
 
 
-def parse_response(response_json):
+def request_news_api(query):
+    params = {"q": query, "sortBy": "relevancy", "apiKey": NEWS_API_KEY}
+    r = requests.get(NEWS_API_URL, params=params)
+    logging.info("News API request status - {}".format(r))
+    if r.ok:
+        return r.json()
+
+
+def parse_fact_check_response(response_json):
 
     claim = response_json["claims"][0]
     claim_text = claim["text"]
     claimant = claim.get("claimant") or "Unknown"
     claimDateTime = claim.get("claimDate")
-    claimDate = (
-        pd.to_datetime(claimDateTime).date() if claimDateTime else "Unknown Date"
-    )
+    claimDate = pd.to_datetime(claimDateTime).date() if claimDateTime else "Unknown Date"
     claimReview = claim["claimReview"][0]
     claimReview_publisher = claimReview["publisher"]["name"]
     claimReview_title = claimReview.get("title") or "Review Article"
     claimReview_datetime = claimReview.get("reviewDate")
     claimReview_date = (
-        pd.to_datetime(claimReview_datetime).date()
-        if claimReview_datetime
-        else "Unknown Date"
+        pd.to_datetime(claimReview_datetime).date() if claimReview_datetime else "Unknown Date"
     )
     claimReview_url = claimReview.get("url")
     textualRating = claimReview.get("textualRating")
     reviewDate = claimReview.get("reviewDate")
-
 
     return SUCCESS_MSG_TEMPLATE_TWIML.format(
         claim_text=claim_text,
@@ -104,10 +96,33 @@ def parse_response(response_json):
     )
 
 
-def factcheckme(query):
-    params = {"query": query}
+def parse_news_response(response_json):
 
-    response_json = request_api(params)
+    print(response_json)
+
+    if response_json["totalResults"] > 0:
+
+        article = response_json["articles"][0]
+        article_source_name = article["source"]["name"]
+        article_title = article.get("title")
+        article_url = article.get("url")
+        article_datetime = article.get("publishedAt")
+        article_date = pd.to_datetime(article_datetime).date() if article_datetime else ""
+
+        return NEWS_MSG_TEMPLATE_TWIML.format(
+            article_headline=article_title,
+            article_source_name=article_source_name,
+            article_published_at_date=article_date,
+            article_url=article_url,
+            google_new_url=GOOGLE_NEWS_URL,
+        )
+
+    else:
+        return ERROR_MSG_TEMPLATE_TWIML
+
+
+def factcheckme(query):
+    response_json = request_fact_check_api(query)
 
     review_found = False
 
@@ -116,8 +131,9 @@ def factcheckme(query):
             review_found = True
 
     if review_found:
-        msg = parse_response(response_json)
+        msg = parse_fact_check_response(response_json)
     else:
-        msg = ERROR_MSG_TEMPLATE_TWIML.format(query=urllib.parse.quote(query))
+        news_json = request_news_api(query)
+        msg = parse_news_response(news_json).format(query=urllib.parse.quote(query))
 
     return msg
