@@ -1,6 +1,8 @@
 import os
 import logging
 import urllib
+from difflib import SequenceMatcher
+import numpy as np
 import pandas as pd
 
 import requests
@@ -47,6 +49,10 @@ by _{article_source_name}_ published on _{article_published_at_date}_
 To find further articles related to the claim, you may visit the link below:
 {google_new_url}
 """
+
+
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
 
 
 def request_fact_check_api(query):
@@ -96,13 +102,18 @@ def parse_fact_check_response(response_json):
     )
 
 
-def parse_news_response(response_json):
+def get_most_relevant_article(articles, query):
 
-    print(response_json)
+    idx_max = np.argmax([similar(art["title"], query) for art in articles])
+
+    return articles[idx_max]
+
+
+def parse_news_response(response_json, query):
 
     if response_json["totalResults"] > 0:
 
-        article = response_json["articles"][0]
+        article = get_most_relevant_article(response_json["articles"], query)
         article_source_name = article["source"]["name"]
         article_title = article.get("title")
         article_url = article.get("url")
@@ -134,6 +145,6 @@ def factcheckme(query):
         msg = parse_fact_check_response(response_json)
     else:
         news_json = request_news_api(query)
-        msg = parse_news_response(news_json).format(query=urllib.parse.quote(query))
+        msg = parse_news_response(news_json, query).format(query=urllib.parse.quote(query))
 
     return msg
